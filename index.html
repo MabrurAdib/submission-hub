@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Submission Tracker</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="icon.svg" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+  <!-- SheetJS for offline-capable Excel (.xlsx, .xls, .csv) import/export -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-top">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <h1>Submission Hub</h1>
+      </div>
+      <div class="header-actions">
+        <button id="themeToggleBtn" class="icon-btn" title="Toggle Theme" aria-label="Toggle Theme">◐</button>
+        <button id="backupMenuBtn" class="icon-btn" title="Backup & Restore" aria-label="Backup & Restore">⇄</button>
+      </div>
+    </div>
+    <nav class="tab-bar" role="tablist">
+      <button class="tab-btn active" data-tab="recordsTab" role="tab" aria-selected="true">
+        Assignments <span id="recordsBadge" class="badge">0</span>
+      </button>
+      <button class="tab-btn" data-tab="studentsTab" role="tab" aria-selected="false">
+        Student Database <span id="studentsBadge" class="badge">0</span>
+      </button>
+    </nav>
+  </header>
+
+  <main class="app-main">
+    <!-- TAB 1: ASSIGNMENT SUBMISSION NOTES -->
+    <section id="recordsTab" class="tab-panel active">
+      <div class="search-bar-wrap">
+        <input type="search" id="recordSearchInput" placeholder="Search assignment titles or student IDs..." />
+      </div>
+
+      <div id="recordsGrid" class="notes-grid"></div>
+
+      <div id="recordsEmpty" class="empty-state hidden">
+        <div class="empty-icon">📋</div>
+        <h3>No Assignment Records Yet</h3>
+        <p>Tap the <strong>+</strong> button at the bottom right to start a new submission table.</p>
+      </div>
+
+      <button id="fabNewRecord" class="fab" title="New Assignment Record" aria-label="New Assignment Record">+</button>
+    </section>
+
+    <!-- TAB 2: MASTER STUDENT DATABASE -->
+    <section id="studentsTab" class="tab-panel">
+      <div class="db-toolbar">
+        <div class="db-actions-row">
+          <label for="excelFileInput" class="btn btn-primary file-label">
+            📥 Import Excel (.xlsx/.csv)
+          </label>
+          <input type="file" id="excelFileInput" accept=".xlsx,.xls,.csv" hidden />
+          <button id="addStudentBtn" class="btn btn-secondary">+ Add Student</button>
+          <button id="exportStudentsBtn" class="btn btn-ghost" title="Export Student List to Excel">📤 Export</button>
+        </div>
+
+        <div class="db-filter-row">
+          <input type="search" id="studentSearchInput" placeholder="Filter by ID, Name, or Batch..." />
+          <select id="batchFilterSelect" aria-label="Filter by Batch">
+            <option value="ALL">All Batches</option>
+            <option value="ELL-48">ELL-48 (N2430**)</option>
+            <option value="Others">Others</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-meta">
+          <span id="studentCountSummary">0 students in local database</span>
+          <button id="clearAllStudentsBtn" class="text-danger-btn">Clear DB</button>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width: 54px;">Sl.</th>
+                <th>Student ID</th>
+                <th>Batch</th>
+                <th>Name</th>
+                <th style="width: 86px; text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="studentsTableBody"></tbody>
+          </table>
+        </div>
+        <div id="studentsEmpty" class="empty-state compact hidden">
+          <p>No students found. Import an Excel sheet (columns: <strong>Sl No.</strong>, <strong>ID</strong>, <strong>Name</strong>) or add manually.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL 1: ASSIGNMENT ENTRY & VIEWER (NOTE-STYLE WORKSPACE) -->
+  <div id="recordModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="modal-sheet large">
+      <div class="modal-header">
+        <input type="text" id="recordTitleInput" class="title-editable" placeholder="Enter Assignment Title (e.g., ENG-301 Mid Assignment)..." />
+        <button id="closeRecordModalBtn" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+
+      <!-- Quick Add Entry Bar -->
+      <div class="entry-composer">
+        <div class="composer-input-group">
+          <label for="entryIdInput">Add Entry (7-Char Student ID)</label>
+          <div class="id-input-row">
+            <input type="text" id="entryIdInput" maxlength="10" placeholder="e.g. N243091" autocomplete="off" />
+            <button id="confirmAddEntryBtn" class="btn btn-primary" disabled>Add</button>
+          </div>
+        </div>
+        <div id="lookupPreview" class="lookup-preview neutral">
+          Type a Student ID to match with local database...
+        </div>
+      </div>
+
+      <!-- Table Controls & Stats -->
+      <div class="record-controls-bar">
+        <div class="stat-pill">
+          Total Submitted: <strong id="modalTotalCount">0</strong>
+        </div>
+        <div class="control-buttons">
+          <button id="toggleSortBtn" class="btn btn-chip" title="Toggle between Entry Order and Serial ID Order">
+            Sort: <span id="sortModeLabel">Entry Order</span>
+          </button>
+          <button id="exportRecordBtn" class="btn btn-chip" title="Download this assignment sheet as Excel">
+            Export XLSX
+          </button>
+        </div>
+      </div>
+
+      <!-- Submissions Table -->
+      <div class="modal-body table-responsive">
+        <table class="data-table entries-table">
+          <thead>
+            <tr>
+              <th style="width: 52px;">Sl.</th>
+              <th>ID & Batch</th>
+              <th>Name</th>
+              <th>Submitted Date</th>
+              <th>Time (BD)</th>
+              <th style="width: 44px;"></th>
+            </tr>
+          </thead>
+          <tbody id="entriesTableBody"></tbody>
+        </table>
+        <div id="entriesEmpty" class="empty-state compact">
+          <p>No submissions logged yet. Enter an ID above and tap <strong>Add</strong>.</p>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="deleteRecordBtn" class="btn btn-danger-outline">Delete Note</button>
+        <button id="doneRecordBtn" class="btn btn-primary">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: ADD / EDIT STUDENT IN MASTER DB -->
+  <div id="studentModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="modal-sheet small">
+      <div class="modal-header">
+        <h2 id="studentModalTitle">Add Student</h2>
+        <button id="closeStudentModalBtn" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+      <form id="studentForm" class="modal-form">
+        <input type="hidden" id="editStudentOriginalId" />
+        <div class="form-group">
+          <label for="studentIdField">Student ID (7 Characters)</label>
+          <input type="text" id="studentIdField" required placeholder="e.g. N243091" maxlength="12" />
+          <small id="batchAutoPreview" class="field-hint">Batch tag will auto-detect (N2430** → ELL-48)</small>
+        </div>
+        <div class="form-group">
+          <label for="studentNameField">Full Name</label>
+          <input type="text" id="studentNameField" required placeholder="e.g. MD. Mabrur Hossain" />
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="cancelStudentModalBtn" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Student</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL 3: JSON BACKUP & RESTORE -->
+  <div id="backupModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="modal-sheet small">
+      <div class="modal-header">
+        <h2>Backup & Restore Data</h2>
+        <button id="closeBackupModalBtn" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-form">
+        <p class="hint-text">All data is stored offline in your browser's local database. Export a JSON backup regularly so you never lose records.</p>
+        <button id="downloadJsonBackupBtn" class="btn btn-primary full-width">⬇ Download Full JSON Backup</button>
+        <label for="restoreJsonInput" class="btn btn-secondary full-width file-label" style="margin-top: 10px; justify-content: center;">
+          ⬆ Restore from JSON Backup
+        </label>
+        <input type="file" id="restoreJsonInput" accept=".json" hidden />
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
